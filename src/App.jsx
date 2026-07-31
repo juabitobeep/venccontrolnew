@@ -681,7 +681,7 @@ export default function App() {
   const updateProducto = async (id, changes) => {
     setProductos(prev => prev.map(p => p.id===id?{...p,...changes}:p));
     try {
-      const M = { enGondola:"en_gondola", stockLiquida:"stock_liquida", pasadoLiquida:"pasado_liquida", vencimiento:"vencimiento", dap:"dap" };
+      const M = { enGondola:"en_gondola", stockLiquida:"stock_liquida", pasadoLiquida:"pasado_liquida", vencimiento:"vencimiento", dap:"dap", descripcion:"descripcion", categoria:"categoria" };
       const dbChanges = {};
       Object.entries(changes).forEach(([k,v]) => { if (M[k]) dbChanges[M[k]] = v; });
       if (Object.keys(dbChanges).length > 0) await db.updateProducto(id, dbChanges);
@@ -1039,6 +1039,9 @@ function ProductCard({ p, config, onDelete, onUpdate }) {
   const [expanded,    setExpanded]    = useState(false);
   const [editFecha,   setEditFecha]   = useState(false);
   const [newFecha,    setNewFecha]    = useState(p.vencimiento);
+  const [editDatos,      setEditDatos]      = useState(false);
+  const [newDescripcion, setNewDescripcion] = useState(p.descripcion);
+  const [newCategoria,   setNewCategoria]   = useState(p.categoria || "");
   const [enGondola,     setEnGondola]     = useState(p.enGondola || false);
   const [stockLiquida,  setStockLiquida]   = useState(p.stockLiquida || "");
   const [pasadoLiquida, setPasadoLiquida]  = useState(p.pasadoLiquida || false);
@@ -1090,6 +1093,25 @@ function ProductCard({ p, config, onDelete, onUpdate }) {
       </div>
       {expanded&&(
         <div style={{...S.cardBody,borderTopColor:T.border}}>
+          <div style={S.cardRow}><span style={{color:"#555"}}>📝 Descripción</span>
+            {editDatos?(
+              <span style={{display:"flex",flexDirection:"column",gap:6,alignItems:"stretch",width:"100%"}}>
+                <textarea value={newDescripcion} rows={2} style={{...S.dateInputSm,width:"100%",resize:"none",textAlign:"left",padding:"6px 8px"}} onChange={e=>setNewDescripcion(e.target.value)}/>
+                <select value={newCategoria} style={{...S.dateInputSm,width:"100%"}} onChange={e=>setNewCategoria(e.target.value)}>
+                  <option value="">Sin categoría</option>
+                  {CATEGORIAS_PRODUCTO.map(c=><option key={c} value={c}>{c}</option>)}
+                </select>
+                <span style={{display:"flex",gap:6,justifyContent:"flex-end"}}>
+                  <button style={S.btnSm} onClick={()=>{onUpdate(p.id,{descripcion:newDescripcion.trim()||p.descripcion, categoria:newCategoria});setEditDatos(false);}}>✓ Guardar</button>
+                  <button style={{...S.btnSm,background:"#2a2a2a",color:"#888"}} onClick={()=>setEditDatos(false)}>✕</button>
+                </span>
+              </span>
+            ):(
+              <span style={{color:"#ccc",fontWeight:600,cursor:"pointer",textAlign:"right"}} onClick={()=>{setNewDescripcion(p.descripcion);setNewCategoria(p.categoria||"");setEditDatos(true);}}>
+                ✏️ Editar
+              </span>
+            )}
+          </div>
           <div style={S.cardRow}><span style={{color:"#555"}}>📅 Vencimiento</span>
             {editFecha?(
               <span style={{display:"flex",gap:6,alignItems:"center"}}>
