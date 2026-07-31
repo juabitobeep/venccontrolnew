@@ -36,7 +36,7 @@ const db = {
 
 // Mapear filas de Supabase (snake_case) a los campos que usa la app (camelCase)
 const mapProd = (p) => ({
-  id: p.id, codigo: p.codigo, descripcion: p.descripcion, vencimiento: p.vencimiento,
+  id: p.id, codigo: p.codigo, descripcion: p.descripcion, categoria: p.categoria || "", vencimiento: p.vencimiento,
   fechaCarga: p.fecha_carga, enGondola: p.en_gondola || false,
   stockLiquida: p.stock_liquida || "", pasadoLiquida: p.pasado_liquida || false, dap: p.dap || false,
 });
@@ -159,6 +159,13 @@ const SM = {
 };
 
 const SECTORES = ["Lácteos","Fiambres","Congelados","Panadería","Bebidas","Limpieza","Perfumería","Otro"];
+const CATEGORIAS_PRODUCTO = [
+  "Aguas", "Aguas saborizadas", "Aguas con gas", "Gaseosas", "Sodas",
+  "Snacks", "Jugos líquidos", "Jugos en polvo", "Amargos", "Aperitivos",
+  "Energizantes", "Cervezas", "Otro"
+];
+const AVATAR_SEEDS = ["Simba","Luna","Rocky","Nina","Max","Coco","Toby","Mia","Leo"];
+const avatarUrl = (seed) => `https://api.dicebear.com/9.x/notionists/svg?seed=${encodeURIComponent(seed)}&backgroundColor=00e5ff,ffd600,ff6b00,00e676`;
 const DEFAULT_CONFIG = { diasLiquida: 30, diasRetiro: 15, sector: "Lácteos" };
 
 // ─── localStorage helpers (solo para preferencias locales: tema, nombre, config) ──
@@ -172,6 +179,23 @@ const getBrowser = () => { const u = navigator.userAgent; return /SamsungBrowser
 // ════════════════════════════════════════════════════════════════════════════════
 // PANTALLA DE BIENVENIDA (onboarding)
 // ════════════════════════════════════════════════════════════════════════════════
+function LoadingScreen() {
+  return (
+    <div style={{
+      minHeight: "100vh", background: "#0d0d0d", display: "flex", flexDirection: "column",
+      alignItems: "center", justifyContent: "center", gap: 16,
+    }}>
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+      <div style={{
+        width: 42, height: 42, border: "3px solid #1e2d3d", borderTop: "3px solid #00e5ff",
+        borderRadius: "50%", animation: "spin .8s linear infinite",
+      }} />
+      <span style={{ color: "#8b949e", fontSize: 14, fontFamily: "'DM Sans','Segoe UI',sans-serif" }}>
+        Cargando productos...
+      </span>
+    </div>
+  );
+}
 function WelcomeScreen({ onComplete }) {
   const tema = useTheme(); const T = getThemeColors(tema);
   const [nombre, setNombre] = useState("");
@@ -237,7 +261,15 @@ function DaySummary({ productos, config, nombre, onClose }) {
             </span>
           </div>
         )}
-        {urgentes === 0 && (
+        {urgentes === 0 && counts.liquida > 0 && (
+          <div style={{ ...DS.alertRow, background:"rgba(255,214,0,.08)", borderColor:"rgba(255,214,0,.25)" }}>
+            <span style={{ fontSize:20 }}>🏷️</span>
+            <span style={{ color:"#ffd600", fontWeight:700, fontSize:14 }}>
+              Tenés {counts.liquida} producto{counts.liquida>1?"s":""} para Liquida
+            </span>
+          </div>
+        )}
+        {urgentes === 0 && counts.liquida === 0 && (
           <div style={{ ...DS.alertRow, background:"rgba(0,230,118,.06)", borderColor:"rgba(0,230,118,.2)" }}>
             <span style={{ fontSize:20 }}>✅</span>
             <span style={{ color:"#00e676", fontWeight:700, fontSize:14 }}>¡Todo en orden por hoy!</span>
@@ -262,8 +294,8 @@ function DaySummary({ productos, config, nombre, onClose }) {
   );
 }
 const DS = {
-  overlay:      { position:"fixed", inset:0, background:"rgba(0,0,0,.85)", zIndex:400, display:"flex", alignItems:"flex-end", justifyContent:"center", backdropFilter:"blur(8px)" },
-  box:          { background:"#161b22", border:"1px solid #1e2d3d", borderRadius:"20px 20px 0 0", padding:"28px 20px 40px", width:"100%", maxWidth:480, display:"flex", flexDirection:"column", gap:16, animation:"slideUp .3s ease" },
+  overlay:      { position:"fixed", inset:0, background:"rgba(0,0,0,.85)", zIndex:400, display:"flex", alignItems:"center", justifyContent:"center", backdropFilter:"blur(8px)" },
+  box:          { background:"#161b22", border:"1px solid #1e2d3d", borderRadius:20, padding:"28px 20px 32px", width:"92%", maxWidth:480, display:"flex", flexDirection:"column", gap:16, animation:"popIn .3s ease" },
   greeting:     { display:"flex", gap:14, alignItems:"center" },
   greetingName: { fontWeight:800, fontSize:20, color:"#e6edf3" },
   greetingDate: { fontSize:12, color:"#555", textTransform:"capitalize", marginTop:2 },
@@ -460,17 +492,22 @@ const sc = {
 // ════════════════════════════════════════════════════════════════════════════════
 // MODAL NUEVO PRODUCTO
 // ════════════════════════════════════════════════════════════════════════════════
-function NuevoProductoModal({ codigo, onSave, onCancel, config, frecuentes }) {
+function NuevoProductoModal({ codigo, onSave, onCancel, config, frecuentes, productos }) {
   const sugerido = frecuentes.find(f => f.codigo === codigo);
   const [descripcion, setDescripcion] = useState(sugerido?.descripcion || "");
+  const [categoria, setCategoria]     = useState(sugerido?.categoria || "");
   const [fecha, setFecha]             = useState("");
   const [error, setError]             = useState("");
+  const [confirmarDuplicado, setConfirmarDuplicado] = useState(false);
+
+  const esDuplicado = codigo && fecha && (productos || []).some(p => p.codigo === codigo && p.vencimiento === fecha);
 
   const handleSave = () => {
     if (!descripcion.trim()) { setError("Escribí una descripción del producto"); return; }
     if (!fecha)               { setError("Seleccioná la fecha de vencimiento");  return; }
+    if (esDuplicado && !confirmarDuplicado) { setError("⚠️ Ya existe un producto igual con esta fecha. Tocá 'Guardar' de nuevo para confirmar."); setConfirmarDuplicado(true); return; }
     setError("");
-    onSave({ id:Date.now().toString(), codigo:codigo||"—", descripcion:descripcion.trim(), vencimiento:fecha, fechaCarga:todayStr() });
+    onSave({ id:Date.now().toString(), codigo:codigo||"—", descripcion:descripcion.trim(), categoria:categoria, vencimiento:fecha, fechaCarga:todayStr() });
   };
 
   const days   = fecha ? diffDays(fecha) : null;
@@ -493,6 +530,13 @@ function NuevoProductoModal({ codigo, onSave, onCancel, config, frecuentes }) {
           <label style={mo.label}>Descripción del producto</label>
           <textarea autoFocus style={mo.textarea} placeholder={"Marca, nombre, gramaje...\nEj: Yogur Ser Frutilla 200g"} value={descripcion} onChange={e=>setDescripcion(e.target.value)} rows={3}/>
         </div>
+        <div style={mo.field}>
+          <label style={mo.label}>Categoría</label>
+          <select style={mo.dateInput} value={categoria} onChange={e=>setCategoria(e.target.value)}>
+            <option value="">Seleccioná una categoría...</option>
+            {CATEGORIAS_PRODUCTO.map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
+        </div>
 
         <div style={mo.field}>
           <label style={mo.label}>Fecha de vencimiento</label>
@@ -505,6 +549,11 @@ function NuevoProductoModal({ codigo, onSave, onCancel, config, frecuentes }) {
           <span style={{color:"#aaa",fontSize:12}}>{days===0?"Vence hoy":days<0?`Venció hace ${Math.abs(days)} días`:`Vence en ${days} días`}</span>
         </div>}
 
+        {esDuplicado && !error && (
+          <div style={{ background:"rgba(255,214,0,.1)", border:"1px solid #ffd600", color:"#b38f00", borderRadius:8, padding:"8px 12px", fontSize:13, marginBottom:12 }}>
+            ⚠️ Ya existe un producto igual con esta fecha de vencimiento.
+          </div>
+        )}
         {error&&<div style={mo.error}>⚠️ {error}</div>}
         <div style={{display:"flex",gap:10}}>
           <button style={mo.btnPrimary} onClick={handleSave}>✓ Guardar</button>
@@ -543,10 +592,12 @@ export default function App() {
   const [frecuentes, setFrecuentes] = useState([]);
   const [config,     setConfig]     = useState(() => lsGet("vc_config", DEFAULT_CONFIG));
   const [nombre,     setNombre]     = useState(() => localStorage.getItem("vc_nombre") || "");
+  const [avatar,    setAvatar]    = useState(() => localStorage.getItem("vc_avatar") || "");
   const [showWelcome,  setShowWelcome]  = useState(() => !localStorage.getItem("vc_nombre"));
+  const [cargandoInicial, setCargandoInicial] = useState(true);
   const [showSummary,  setShowSummary]  = useState(false);
   const [view,         setView]         = useState("lista");
-  const [vistaLista,   setVistaLista]   = useState("lista"); // lista | semana
+  const [vistaLista,   setVistaLista]   = useState(() => localStorage.getItem("vc_vista_lista") || "semana");
   const [scanning,     setScanning]     = useState(false);
   const [pendingCod,   setPendingCod]   = useState(null);
   const [filtro,       setFiltro]       = useState("todos");
@@ -556,7 +607,9 @@ export default function App() {
 
   useEffect(()=>{ localStorage.setItem("vc_tema", tema); }, [tema]);
   useEffect(()=>{ lsSet("vc_config",     config);     }, [config]);
+  useEffect(()=>{ localStorage.setItem("vc_vista_lista", vistaLista); }, [vistaLista]);
   useEffect(()=>{ if(nombre) localStorage.setItem("vc_nombre", nombre); }, [nombre]);
+  useEffect(()=>{ localStorage.setItem("vc_avatar", avatar); }, [avatar]);
 
   // Suscribirse a notificaciones push cuando el usuario ya tiene nombre
   useEffect(()=>{ if (nombre) suscribirPush(); }, [nombre]);
@@ -573,6 +626,8 @@ export default function App() {
       } catch(e) {
         console.error("Error al cargar datos:", e);
         if (esInicial) showToast("Error al cargar datos", "warn");
+      } finally {
+        if (esInicial) setCargandoInicial(false);
       }
     };
     if (!showWelcome) {
@@ -591,7 +646,7 @@ export default function App() {
     showToast("✓ Producto guardado","ok");
     try {
       await db.addProducto({
-        id: p.id, codigo: p.codigo, descripcion: p.descripcion,
+        id: p.id, codigo: p.codigo, descripcion: p.descripcion, categoria: p.categoria || "",
         vencimiento: p.vencimiento, fecha_carga: p.fechaCarga,
         en_gondola: false, stock_liquida: "", pasado_liquida: false, dap: false
       });
@@ -660,6 +715,7 @@ export default function App() {
   }, [lista]);
 
   if (showWelcome) return <ThemeCtx.Provider value={tema}><WelcomeScreen onComplete={n=>{setNombre(n);setShowWelcome(false);}}/></ThemeCtx.Provider>;
+  if (!showWelcome && cargandoInicial) return <LoadingScreen />;
   if (scanning)    return <CameraScanner onDetected={cod=>{setScanning(false);setPendingCod(cod);}} onClose={()=>setScanning(false)} />;
 
   return (
@@ -669,6 +725,7 @@ export default function App() {
         @keyframes scanMove{0%,100%{top:18%}50%{top:76%}}
         @keyframes spin{to{transform:rotate(360deg)}}
         @keyframes slideUp{from{transform:translateY(40px);opacity:0}to{transform:translateY(0);opacity:1}}
+        @keyframes popIn{from{transform:scale(.92);opacity:0}to{transform:scale(1);opacity:1}}
         @keyframes slideDown{from{opacity:0;transform:translateX(-50%) translateY(-8px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
         @keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
         @keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
@@ -680,7 +737,7 @@ export default function App() {
       `}</style>
 
       {showSummary && <DaySummary productos={productos} config={config} nombre={nombre} onClose={()=>setShowSummary(false)}/>}
-      {pendingCod!==null && <NuevoProductoModal codigo={pendingCod} onSave={handleSaveProducto} onCancel={()=>setPendingCod(null)} config={config} frecuentes={frecuentes}/>}
+      {pendingCod!==null && <NuevoProductoModal codigo={pendingCod} onSave={handleSaveProducto} onCancel={()=>setPendingCod(null)} config={config} frecuentes={frecuentes} productos={productos}/>}
 
       {confirmDel && (
         <div style={S.modalOverlay} onClick={()=>setConfirmDel(null)}>
@@ -710,7 +767,13 @@ export default function App() {
       {/* Header */}
       <header style={{...S.header, background:T.headerBg, borderBottomColor:T.border}}>
         <div style={{display:"flex",alignItems:"center",gap:10,cursor:"pointer"}} onClick={()=>setShowSummary(true)}>
-          <span style={{fontSize:26}}>📦</span>
+          {avatar ? (
+            <img src={avatarUrl(avatar)} alt="avatar" style={{width:38,height:38,borderRadius:"50%",flexShrink:0,background:T.bg1}}/>
+          ) : (
+            <div style={{width:38,height:38,borderRadius:"50%",background:T.accent||"#00e5ff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:"#0d1117",flexShrink:0}}>
+              {nombre.trim().split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase()}
+            </div>
+          )}
           <div>
             <div style={S.appTitle}>{getSaludo()}, {nombre}!</div>
             <div style={S.appSub}>{config.sector}</div>
@@ -812,12 +875,13 @@ export default function App() {
 
         {/* ── FRECUENTES ── */}
         {view==="frecuentes"&&<FrecuentesView frecuentes={frecuentes} onDelete={async cod=>{setFrecuentes(prev=>prev.filter(f=>f.codigo!==cod));showToast("Eliminado de frecuentes","warn");try{await db.deleteFrecuente(cod);}catch(e){console.error(e);}}}/>}
+          {view==="categorias" && <CategoriasView productos={productos} config={config} onDelete={(id)=>setConfirmDel(id)} onUpdate={updateProducto}/>}
 
         {/* ── REPORTE ── */}
         {view==="reporte"&&<ReporteView historial={historial} productos={productos} config={config} nombre={nombre}/>}
 
         {/* ── CONFIG ── */}
-        {view==="config"&&<ConfigView config={config} setConfig={setConfig} nombre={nombre} setNombre={setNombre} showToast={showToast} alertas={alertas} tema={tema} setTema={setTema}/>}
+        {view==="config"    && <ConfigView config={config} setConfig={setConfig} nombre={nombre} setNombre={setNombre} showToast={showToast} alertas={alertas} tema={tema} setTema={setTema} avatar={avatar} setAvatar={setAvatar}/>}
 
       </main>
 
@@ -834,6 +898,7 @@ export default function App() {
           {id:"alertas",    icon:"🚨", label:"Alertas",    badge:alertas.length||null},
           {id:"historial",  icon:"📝", label:"Historial",  badge:null},
           {id:"reporte",    icon:"📊", label:"Reporte",    badge:null},
+          {id:"categorias", icon:"🗂️", label:"Categorías", badge:null},
           {id:"config",     icon:"⚙️", label:"Config",     badge:null},
         ].map(t=>(
           <button key={t.id} style={{...S.navBtn,...(view===t.id?S.navBtnActive:{})}} onClick={()=>setView(t.id)}>
@@ -1003,7 +1068,7 @@ function ProductCard({ p, config, onDelete, onUpdate }) {
           <div style={{minWidth:0}}>
             {/* Descripción completa cuando expandido, recortada cuando cerrado */}
             <div style={{...S.cardName, whiteSpace: expanded?"normal":"nowrap"}}>{p.descripcion}</div>
-            <div style={S.cardCode}>COD: {p.codigo}</div>
+            <div style={S.cardCode}>COD: {p.codigo}{p.categoria?` · ${p.categoria}`:""}</div>
           </div>
         </div>
         <div style={S.cardRight}>
@@ -1154,6 +1219,62 @@ function HistorialView({ historial, onClear }) {
 // ════════════════════════════════════════════════════════════════════════════════
 // FRECUENTES
 // ════════════════════════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════════════════════
+// CATEGORÍAS
+// ════════════════════════════════════════════════════════════════════════════════
+function CategoriasView({ productos, config, onDelete, onUpdate }) {
+  const [activa, setActiva] = useState(null);
+  const st = p => getStatus(diffDays(p.vencimiento), config.diasLiquida, config.diasRetiro);
+
+  const conteos = {};
+  CATEGORIAS_PRODUCTO.forEach(c => { conteos[c] = productos.filter(p => (p.categoria||"Sin categoría") === c).length; });
+  const sinCategoria = productos.filter(p => !p.categoria).length;
+
+  if (activa) {
+    const items = productos.filter(p => (activa==="Sin categoría" ? !p.categoria : p.categoria===activa))
+      .sort((a,b)=>diffDays(a.vencimiento)-diffDays(b.vencimiento));
+    return (
+      <div style={S.view}>
+        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}>
+          <button onClick={()=>setActiva(null)} style={{background:"transparent",border:"none",fontSize:20,cursor:"pointer",color:"#8b949e"}}>←</button>
+          <div>
+            <h2 style={{margin:0,fontWeight:800,fontSize:18}}>🗂️ {activa}</h2>
+            <p style={{margin:0,color:"#555",fontSize:12}}>{items.length} producto{items.length!==1?"s":""}</p>
+          </div>
+        </div>
+        {items.length===0
+          ? <Empty icon="📭" msg="Sin productos en esta categoría"/>
+          : <div style={S.productList}>{items.map(p=><ProductCard key={p.id} p={p} config={config} onDelete={()=>onDelete(p.id)} onUpdate={onUpdate}/>)}</div>}
+      </div>
+    );
+  }
+
+  return (
+    <div style={S.view}>
+      <div style={{marginBottom:16}}>
+        <h2 style={{margin:0,fontWeight:800,fontSize:18}}>🗂️ Categorías</h2>
+        <p style={{margin:"4px 0 0",color:"#555",fontSize:12}}>Tocá una categoría para ver sus productos</p>
+      </div>
+      <div style={{display:"flex",flexDirection:"column",gap:8}}>
+        {[...CATEGORIAS_PRODUCTO, "Sin categoría"].map(c => {
+          const n = c==="Sin categoría" ? sinCategoria : conteos[c];
+          return (
+            <div key={c} onClick={()=>setActiva(c)} style={{
+              background:"#161b22", border:"1px solid #1e2d3d", borderRadius:12, padding:"14px 16px",
+              display:"flex", justifyContent:"space-between", alignItems:"center", cursor:"pointer",
+            }}>
+              <span style={{fontWeight:700,fontSize:14,color: n>0 ? "#e6edf3" : "#555"}}>{c}</span>
+              <span style={{
+                background: n>0 ? "#00e5ff22" : "#1e2d3d", color: n>0 ? "#00e5ff" : "#555",
+                borderRadius:20, padding:"3px 12px", fontSize:12, fontWeight:700,
+              }}>{n}</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 function FrecuentesView({ frecuentes, onDelete }) {
   const tema = useTheme(); const T = getThemeColors(tema);
   const sorted = [...frecuentes].sort((a,b)=>(b.veces||1)-(a.veces||1));
@@ -1380,7 +1501,7 @@ const R = {
 // ════════════════════════════════════════════════════════════════════════════════
 // CONFIG
 // ════════════════════════════════════════════════════════════════════════════════
-function ConfigView({ config, setConfig, nombre, setNombre, showToast, alertas, tema, setTema }) {
+function ConfigView({ config, setConfig, nombre, setNombre, showToast, alertas, tema, setTema, avatar, setAvatar }) {
   const T = getThemeColors(tema);
   const [form,         setForm]         = useState(config);
   const [editNombre,   setEditNombre]   = useState(nombre);
@@ -1406,6 +1527,28 @@ function ConfigView({ config, setConfig, nombre, setNombre, showToast, alertas, 
           </div>
           <input style={{...S.inp,fontSize:16,fontWeight:700,textAlign:"center"}} value={editNombre} maxLength={30} placeholder="Tu nombre..." onChange={e=>{setEditNombre(e.target.value);setNomErr("");}}/>
           {nomErr&&<div style={{color:"#ff6b7a",fontSize:12,marginTop:6,textAlign:"center"}}>⚠️ {nomErr}</div>}
+        </div>
+        {/* Avatar */}
+        <div style={{marginBottom:20,background:"#0d1117",border:"1px solid #1e2d3d",borderRadius:12,padding:"16px"}}>
+          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
+            <span style={{fontSize:22}}>🖼️</span>
+            <div><div style={{fontWeight:800,color:"#e6edf3",fontSize:15}}>Tu avatar</div><div style={{color:"#555",fontSize:12}}>Elegí uno o usá tus iniciales</div></div>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:8}}>
+            <div onClick={()=>setAvatar("")} style={{
+              aspectRatio:"1",borderRadius:"50%",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",
+              background:"#00e5ff",color:"#0d1117",fontWeight:800,fontSize:13,
+              border: avatar===""?"3px solid #fff":"3px solid transparent",
+            }}>
+              {nombre.trim().split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase()||"?"}
+            </div>
+            {AVATAR_SEEDS.map(seed=>(
+              <img key={seed} src={avatarUrl(seed)} alt={seed} onClick={()=>setAvatar(seed)} style={{
+                aspectRatio:"1",borderRadius:"50%",cursor:"pointer",background:"#1e2d3d",
+                border: avatar===seed?"3px solid #00e5ff":"3px solid transparent",
+              }}/>
+            ))}
+          </div>
         </div>
 
         {/* Sector */}

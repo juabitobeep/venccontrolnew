@@ -29,18 +29,20 @@ Deno.serve(async () => {
       if (!p.vencimiento) continue;
       const dias = diasDesde(p.vencimiento);
 
-      // 1. D.A.P. — en cualquier estado
-      if (p.dap) dap++;
-
       // 2. Liquida — automático (status liquida) o marcado manual (pasado_liquida)
       const esLiquidaAuto = dias > DIAS_RETIRO && dias <= DIAS_LIQUIDA;
-      if (esLiquidaAuto || p.pasado_liquida) liquida++;
+      const esLiquida = esLiquidaAuto || p.pasado_liquida;
+      if (esLiquida) liquida++;
+
+      // 4. Retiro anticipado — status retiro (todavía no vencido, aún no pasó por Liquida)
+      const esRetiroAnticipado = dias >= 0 && dias <= DIAS_RETIRO;
+      if (esRetiroAnticipado) retiroAnticipado++;
+
+      // 1. D.A.P. — solo si además está en Liquida o Retiro anticipado
+      if (p.dap && (esLiquida || esRetiroAnticipado)) dap++;
 
       // 3. Retirar de góndola — vencido Y ya pasó por Liquida
       if (dias < 0 && (p.en_gondola || p.pasado_liquida)) retirarGondola++;
-
-      // 4. Retiro anticipado — status retiro (todavía no vencido, aún no pasó por Liquida)
-      if (dias >= 0 && dias <= DIAS_RETIRO) retiroAnticipado++;
     }
 
     let body: string;
